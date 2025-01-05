@@ -1,6 +1,7 @@
 import sys
 sys.path.append(r'C:\users\kalpe\appData\roaming\python\python312\site-packages')
-from flask import Flask, render_template_string, jsonify, request
+
+from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
 from haversine import haversine, Unit
 from pymongo import MongoClient
 import datetime
@@ -9,22 +10,139 @@ app = Flask(__name__)
 
 # MongoDB setup
 client = MongoClient("mongodb+srv://Kalpeshpawar:010420011@cluster0.usfz4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0") 
-# Replace with your MongoDB URI
-
-
-
-db = client['attendance_system']  # Database name
-punch_collection = db['punch_records']  # Collection name
+db = client['attendance_system']
+punch_collection = db['punch_records']
 
 # Geofence center and radius
 geofence_center = (22.27174507140292, 73.17586006441583)  # Example coordinates
 geofence_radius = 1000000  # 1000 meters radius
 
+# Predefined users and their credentials (username, password)
+users = {
+    "user1": "password1",
+    "user2": "password2",
+    "user3": "password3",
+}
+
+logged_in_user = None
+
 # Haversine formula to calculate distance
 def calculate_distance(user_location):
     return haversine(user_location, geofence_center, unit=Unit.METERS)
 
+# HTML Login Page
+LOGIN_PAGE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        select, input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .error {
+            color: #dc3545;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .success {
+            color: #28a745;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .logout {
+            text-align: right;
+            margin-bottom: 20px;
+        }
+        .logout-btn {
+            background-color: #dc3545;
+            color: white;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .logout-btn:hover {
+            background-color: #c82333;
+        }
+    </style>
 
+</head>
+<body>
+    <h2>Login</h2>
+    <form method="POST">
+        <label for="username">Select Username:</label>
+        <select id="username" name="username" required>
+            <option value="user1">User 1</option>
+            <option value="user2">User 2</option>
+            <option value="user3">User 3</option>
+        </select><br><br>
+        
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required><br><br>
+        
+        <button type="submit">Login</button>
+    </form>
+    {% if error %}
+    <p style="color: red;">{{ error }}</p>
+    {% endif %}
+</body>
+</html>
+"""
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -32,6 +150,12 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attendance Punch System</title>
+    <script>
+        // Auto-logout after 50 seconds
+        setTimeout(function() {
+            window.location.href = '/logout'; // Redirect to the logout route
+        }, 50000); // 50 seconds in milliseconds
+    </script>    
     <style>
         .punch-circle {
             width: 150px;
@@ -85,6 +209,7 @@ HTML_TEMPLATE = """
             <p>Geofence Status: <span id="geofence-indicator">Checking...</span></p>
             <p id="user-coordinates" style="display: none;">Your Location: <span id="coordinates"></span></p>
         </section>
+     
 
         <section id="punch-controls">
             <div id="punch-in" class="punch-circle punch-in" style="display: none;">Punch In</div>
@@ -97,6 +222,9 @@ HTML_TEMPLATE = """
                 <!-- Dynamic Punch History Will Populate Here -->
             </ul>
         </section>
+        <form method="POST" action="/logout">
+            <button type="submit">Logout</button>
+        </form>           
     </main>
 
     <footer>
@@ -254,10 +382,38 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
+@app.route("/", methods=["GET", "POST"])
+def login():
+    global logged_in_user
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
 
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
+        if username in users and users[username] == password:
+            logged_in_user = username  # Set logged-in user
+            return redirect(url_for("main_page"))
+        else:
+            error = "Invalid username or password."
+            return render_template_string(LOGIN_PAGE, error=error)
+    
+    # Reset login state on reload
+    logged_in_user = None
+    return render_template_string(LOGIN_PAGE)
+
+@app.route("/main", methods=["GET"])
+def main_page():
+    global logged_in_user
+    if logged_in_user:  # Check if a user is logged in
+        return render_template_string(HTML_TEMPLATE, username=logged_in_user)
+    else:
+        return redirect(url_for("login"))
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    global logged_in_user
+    logged_in_user = None  # Clear the login state
+    return redirect(url_for("login"))
+
 
 @app.route('/get_geofence_status', methods=['POST'])
 def get_geofence_status():
