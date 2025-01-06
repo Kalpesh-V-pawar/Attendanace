@@ -696,19 +696,24 @@ ADMIN_TEMPLATE = """
             fetch('/update_status', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({ updates: updates })
             })
             .then(response => {
                 if (!response.ok) {
-                    throw new Error('Network response was not ok');
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
-                if (data.status === 'success') {
-                    alert('Changes saved successfully');
+                if (data.status === 'success' || data.status === 'partial') {
+                    if (data.failed && data.failed.length > 0) {
+                        alert(`Some updates failed. Failed IDs: ${data.failed.join(', ')}`);
+                    } else {
+                        alert('Changes saved successfully');
+                    }
                     changedRecords.clear();
                     
                     // Update the data-status attributes for filtered views
@@ -725,7 +730,7 @@ ADMIN_TEMPLATE = """
             })
             .catch(error => {
                 console.error('Error:', error);
-                alert('Error saving changes: ' + error.message);
+                alert(`Error saving changes: ${error.message}`);
             });
         }
 
@@ -750,44 +755,59 @@ def admin_page():
 
 @app.route("/update_status", methods=["POST"])
 def update_status():
-    global logged_in_user
-    if logged_in_user != "admin":
-        return jsonify({"status": "error", "message": "Unauthorized"}), 403
-
     try:
-        updates = request.json.get('updates', [])
-        
-        for update in updates:
-            record_id = update['recordId']
-            new_status = update['status']
-            admin_remark = update.get('adminRemark', '')
-            
-            # Convert string ID to ObjectId
-            object_id = ObjectId(record_id)
-            
-            # Update the record
-            result = punch_collection.update_one(
-                {"_id": object_id},
-                {"$set": {
-                        "status": new_status,
-                        "adminRemark": admin_remark,
-                        "statusChangedAt": get_time_with_offset()
-                    }}
-            )
-            
-            if result.modified_count == 0:
-                return jsonify({
-                    "status": "error",
-                    "message": f"Record {record_id} not found or not modified"
-                }), 400
+        if logged_in_user != "admin":
+            return jsonify({"status": "error", "message": "Unauthorized"}), 403
 
-        return jsonify({"status": "success", "message": "Records updated successfully"})
+        updates = request.json.get('updates', [])
+        if not updates:
+            return jsonify({"status": "error", "message": "No updates provided"}), 400
+
+        successful_updates = []
+        failed_updates = []
+
+        for update in updates:
+            try:
+                record_id = update.get('recordId')
+                new_status = update.get('status')
+                admin_remark = update.get('adminRemark', '')
+
+                if not all([record_id, new_status]):
+                    failed_updates.append(record_id)
+                    continue
+
+                object_id = ObjectId(record_id)
+                result = punch_collection.update_one(
+                    {"_id": object_id},
+                    {
+                        "$set": {
+                            "status": new_status,
+                            "adminRemark": admin_remark,
+                            "statusChangedAt": get_time_with_offset()
+                        }
+                    }
+                )
+
+                if result.modified_count > 0:
+                    successful_updates.append(record_id)
+                else:
+                    failed_updates.append(record_id)
+
+            except Exception as e:
+                logger.error(f"Error updating record {record_id}: {str(e)}")
+                failed_updates.append(record_id)
+
+        return jsonify({
+            "status": "success" if not failed_updates else "partial",
+            "successful": successful_updates,
+            "failed": failed_updates
+        })
 
     except Exception as e:
-        print(f"Error updating status: {str(e)}")  # For debugging
+        logger.error(f"Update status error: {str(e)}")
         return jsonify({
             "status": "error",
-            "message": f"Error updating records: {str(e)}"
+            "message": str(e)
         }), 500
 
 @app.route("/", methods=["GET", "POST"])
