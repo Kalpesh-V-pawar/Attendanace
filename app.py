@@ -82,8 +82,25 @@ def calculate_work_duration(punch_in_time, punch_out_time):
 
 # Haversine formula to calculate distance
 def calculate_distance(user_location):
-    return haversine(user_location, geofence_center, unit=Unit.METERS)
-
+    try:
+        if not isinstance(user_location, tuple) or len(user_location) != 2:
+            logger.error(f"Invalid location format: {user_location}")
+            return float('inf')
+        
+        lat, lng = user_location
+        if not (isinstance(lat, (int, float)) and isinstance(lng, (int, float))):
+            logger.error(f"Invalid coordinate types: lat={type(lat)}, lng={type(lng)}")
+            return float('inf')
+            
+        if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+            logger.error(f"Coordinates out of range: lat={lat}, lng={lng}")
+            return float('inf')
+            
+        return haversine(user_location, geofence_center, unit=Unit.METERS)
+    except Exception as e:
+        logger.error(f"Distance calculation error: {str(e)}")
+        return float('inf')
+    
 # HTML Login Page
 LOGIN_PAGE = """
 <!DOCTYPE html>
@@ -205,13 +222,12 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attendance Punch System</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
     <script>
-        // Auto-logout after 50 seconds
         setTimeout(function() {
-            window.location.href = '/logout'; // Redirect to the logout route
-        }, 50000); // 50 seconds in milliseconds
-
-        
+            window.location.href = '/logout';
+        }, 50000);
     </script>    
     <style>
         .punch-circle {
@@ -230,29 +246,17 @@ HTML_TEMPLATE = """
             line-height: 150px;
             position: relative;
         }
-        .punch-in {
-            background-color: #4CAF50;
-        }
-        .punch-out {
-            background-color: #f44336;
-        }
+        .punch-in { background-color: #4CAF50; }
+        .punch-out { background-color: #f44336; }
         .punch-circle:disabled {
             background-color: #ccc;
             cursor: not-allowed;
         }
-        #geofence-status {
-            margin-top: 20px;
-        }
-        #punch-history {
-            margin-top: 20px;
-        }
-        #punch-history ul {
-            list-style-type: none;
-        }
-        .remark-section {
-            margin-bottom: 20px;
-        }
-       .remark-input {
+        #geofence-status { margin-top: 20px; }
+        #punch-history { margin-top: 20px; }
+        #punch-history ul { list-style-type: none; }
+        .remark-section { margin-bottom: 20px; }
+        .remark-input {
             width: 100%;
             padding: 8px;
             margin-top: 5px;
@@ -264,6 +268,12 @@ HTML_TEMPLATE = """
             font-weight: bold;
             color: #ff0000;
         }
+        #map {
+            height: 400px;
+            width: 100%;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
@@ -272,6 +282,8 @@ HTML_TEMPLATE = """
     </header>
 
     <main>
+        <div id="map"></div>
+
         <section id="geofence-status">
             <p>Geofence Status: <span id="geofence-indicator">Checking...</span></p>
             <p id="user-coordinates" style="display: none;">Your Location: <span id="coordinates"></span></p>
@@ -286,13 +298,11 @@ HTML_TEMPLATE = """
             </div>
         </section>    
 
-
         <section id="punch-history">
             <h2>Punch History</h2>
-            <ul id="history-list">
-                <!-- Dynamic Punch History Will Populate Here -->
-            </ul>
+            <ul id="history-list"></ul>
         </section>
+
         <form method="POST" action="/logout">
             <button type="submit">Logout</button>
         </form>           
@@ -302,155 +312,150 @@ HTML_TEMPLATE = """
         <p>&copy; 2025 Attendance System</p>
     </footer>
 
-
     <script>
-let hasPunchedIn = {{ 'true' if initial_status == 'Punch In' else 'false' }};
-let isProcessing = false;
+        let hasPunchedIn = {{ 'true' if initial_status == 'Punch In' else 'false' }};
+        let isProcessing = false;
+        let userMarker;
+        
+        // Initialize map
+        const map = L.map('map').setView([22.27174507140292, 73.17586006441583], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
 
-function updateButtonVisibility() {
-    if (hasPunchedIn) {
-        document.getElementById('punch-in').style.display = 'none';
-        document.getElementById('punch-out').style.display = 'block';
-    } else {
-        document.getElementById('punch-in').style.display = 'block';
-        document.getElementById('punch-out').style.display = 'none';
-    }
-}
+        // Add geofence circle
+        const geofenceCircle = L.circle([22.27174507140292, 73.17586006441583], {
+            radius: 1000000,
+            color: 'blue',
+            fillColor: '#30f',
+            fillOpacity: 0.1
+        }).addTo(map);
 
-function checkLastPunchStatus() {
-    fetch('/last_punch_status')
-        .then(response => response.json())
-        .then(data => {
-            if (data.action) {
-                const lastPunchTime = new Date(data.timestamp);
-                const currentTime = new Date();
-                const hoursDifference = (currentTime - lastPunchTime) / (1000 * 60 * 60);
-                hasPunchedIn = hoursDifference <= 36 && (data.action === 'Punch In');
-                updateButtonVisibility();
+        function updateButtonVisibility() {
+            if (hasPunchedIn) {
+                document.getElementById('punch-in').style.display = 'none';
+                document.getElementById('punch-out').style.display = 'block';
+            } else {
+                document.getElementById('punch-in').style.display = 'block';
+                document.getElementById('punch-out').style.display = 'none';
             }
+        }
+
+        function updateCoordinates(lat, lng) {
+            const coordinatesElement = document.getElementById('coordinates');
+            if (coordinatesElement) {
+                coordinatesElement.innerText = `Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`;
+            }
+        }
+
+        // Update these settings in your geolocation code
+        const locationOptions = {
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 30000
+        };
+
+        function updateGeofenceStatus() {
+            if (navigator.geolocation) {
+               navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const userLat = position.coords.latitude;
+                        const userLng = position.coords.longitude;
+
+                        // Update map marker
+                        if (userMarker) {
+                            userMarker.setLatLng([userLat, userLng]);
+                        } else {
+                            userMarker = L.marker([userLat, userLng]).addTo(map);
+                            map.setView([userLat, userLng], 13);
+                        }
+
+                        fetch('/get_geofence_status', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ latitude: userLat, longitude: userLng })
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            if (data.status === 'error') {
+                                throw new Error(data.message || 'Geofence check failed');
+                            }
+                    
+                            const indicator = document.getElementById('geofence-indicator');
+                            indicator.innerText = data.status;
+                            indicator.style.color = data.status === 'Inside Geofence' ? '#4CAF50' : '#f44336';
+
+                            if (data.status === 'Outside Geofence') {
+                                updateCoordinates(userLat, userLng);
+                                document.getElementById('user-coordinates').style.display = 'block';
+                                document.getElementById('punch-in').style.display = 'none';
+                                document.getElementById('punch-out').style.display = 'none';
+                            } else {
+                                document.getElementById('user-coordinates').style.display = 'none';
+                                updateButtonVisibility();
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Geofence Error:', error);
+                            document.getElementById('geofence-indicator').innerText = 'Error: ' + error.message;
+                            document.getElementById('geofence-indicator').style.color = '#f44336';
+                        });
+                    },
+                    (error) => {
+                        console.error('Geolocation Error:', error);
+                        document.getElementById('geofence-indicator').innerText = 'Location Error: ' + error.message;
+                        document.getElementById('geofence-indicator').style.color = '#f44336';
+                    },
+                    locationOptions
+                );
+            }
+        }
+        updateGeofenceStatus();
+            const intervalId = setInterval(updateGeofenceStatus, 15000);
+        document.getElementById('punch-in').addEventListener('click', () => {
+            if (!isProcessing) handlePunchAction('Punch In');
         });
-}
 
-function checkGeofenceStatus(position) {
-    const userLat = position.coords.latitude;
-    const userLng = position.coords.longitude;
+        document.getElementById('punch-out').addEventListener('click', () => {
+            if (!isProcessing) handlePunchAction('Punch Out');
+        });
 
-    return fetch('/get_geofence_status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latitude: userLat, longitude: userLng })
-    })
-    .then(response => response.json())
-    .then(data => {
-        document.getElementById('geofence-indicator').innerText = data.status;
+        function handlePunchAction(action) {
+            isProcessing = true;
+            showStatusMessage("Your input is getting saved...");
+            disableButtons();
 
-        if (data.status === 'Outside Geofence') {
-            document.getElementById('coordinates').innerText = `Lat: ${userLat}, Lng: ${userLng}`;
-            document.getElementById('user-coordinates').style.display = 'block';
-            document.getElementById('punch-in').style.display = 'none';
-            document.getElementById('punch-out').style.display = 'none';
-        } else {
-            document.getElementById('user-coordinates').style.display = 'none';
-            updateButtonVisibility();
-        }
-    })
-    .catch(error => {
-        console.error('Geofence Error:', error);
-        document.getElementById('geofence-indicator').innerText = 'Error checking location';
-    });
-}
+            const userRemark = document.getElementById('user-remark').value;
 
-function requestLocationPermission() {
-    if (!navigator.geolocation) {
-        document.getElementById('geofence-indicator').innerText = 'Geolocation not supported';
-        return;
-    }
-
-    const options = {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-    };
-
-    navigator.geolocation.watchPosition(
-        checkGeofenceStatus,
-        (error) => {
-            let message = 'Location error: ';
-            switch(error.code) {
-                case error.PERMISSION_DENIED:
-                    message += 'Please enable location services';
-                    break;
-                case error.POSITION_UNAVAILABLE:
-                    message += 'Location unavailable';
-                    break;
-                case error.TIMEOUT:
-                    message += 'Request timed out';
-                    break;
-                default:
-                    message += 'Unknown error';
-            }
-            document.getElementById('geofence-indicator').innerText = message;
-        },
-        options
-    );
-}
-
-function handlePunchAction(action) {
-    if (isProcessing) return;
-    
-    isProcessing = true;
-    showStatusMessage("Processing...");
-    disableButtons();
-
-    const userRemark = document.getElementById('user-remark').value;
-    
-    navigator.geolocation.getCurrentPosition(
-        (position) => {
-            fetch('/punch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: action,
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    userRemark: userRemark
+            navigator.geolocation.getCurrentPosition((position) => {
+                fetch('/punch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: action,
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        userRemark: userRemark
+                    })
                 })
-            })
-            .then(response => response.json())
-            .then(data => {
-                addPunchRecord(data.message);
-                hasPunchedIn = (action === 'Punch In');
-                updateButtonVisibility();
-                showStatusMessage("Saved successfully!");
-            })
-            .catch(error => {
-                console.error('Punch Error:', error);
-                showStatusMessage("Error saving punch!");
-            })
-            .finally(() => {
-                setTimeout(() => {
-                    isProcessing = false;
-                    enableButtons();
-                }, 5000);
+                .then(response => response.json())
+                .then(data => {
+                    addPunchRecord(data.message);
+                    hasPunchedIn = (action === 'Punch In');
+                    updateButtonVisibility();
+                    showStatusMessage("Your input is saved!");
+                    setTimeout(() => {
+                        isProcessing = false;
+                        enableButtons();
+                    }, 5000);
+                });
             });
-        },
-        (error) => {
-            console.error('Location Error:', error);
-            showStatusMessage("Location error!");
-            isProcessing = false;
-            enableButtons();
         }
-    );
-}
-
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    checkLastPunchStatus();
-    requestLocationPermission();
-    
-    document.getElementById('punch-in').addEventListener('click', () => handlePunchAction('Punch In'));
-    document.getElementById('punch-out').addEventListener('click', () => handlePunchAction('Punch Out'));
-});
 
         function addPunchRecord(record) {
             const listItem = document.createElement('li');
@@ -466,9 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             setTimeout(() => {
                 const existingStatusElement = document.getElementById('status-message');
-                if (existingStatusElement) {
-                    existingStatusElement.remove();
-                }
+                if (existingStatusElement) existingStatusElement.remove();
             }, 5000);
         }
 
@@ -482,7 +485,6 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('punch-out').disabled = false;
         }
 
-        // Load punch history on page load
         fetch('/last_punch_status')
             .then(response => response.json())
             .then(data => {
@@ -491,9 +493,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
     </script>
-
-
-
 </body>
 </html>
 """
@@ -789,28 +788,23 @@ def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-
+        
         if username in users and users[username] == password:
             logged_in_user = username
             if username == "admin":
-                return redirect(url_for("admin_page"))
-            return redirect(url_for("main_page"))
-        else:
-            error = "Invalid username or password."
-            return render_template_string(LOGIN_PAGE, error=error)
-    
-    logged_in_user = None
+                return redirect("/admin")
+            return redirect("/main")
+        return render_template_string(LOGIN_PAGE, error="Invalid credentials")
     return render_template_string(LOGIN_PAGE)
 
-@app.route("/main", methods=["GET"])
+@app.route("/main")
 def main_page():
     global logged_in_user
-    if logged_in_user:
-        # Get user's last punch status from MongoDB
-        last_punch = get_user_last_punch(logged_in_user)
-        initial_status = last_punch['action'] if last_punch else None
-        return render_template_string(HTML_TEMPLATE, username=logged_in_user, initial_status=initial_status)
-    return redirect(url_for("login"))
+    if not logged_in_user:
+        return redirect("/")
+    last_punch = get_user_last_punch(logged_in_user)
+    initial_status = last_punch['action'] if last_punch else None
+    return render_template_string(HTML_TEMPLATE, username=logged_in_user, initial_status=initial_status)
 
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
@@ -819,29 +813,28 @@ def logout():
     return redirect(url_for("login"))
 
 
-@app.route('/get_geofence_status', methods=['POST'])
+@app.route("/get_geofence_status", methods=['POST'])
 def get_geofence_status():
-    try:
-        if not logged_in_user:
-            logger.error("User not logged in")
-            return jsonify({'status': 'error', 'message': 'Not logged in'}), 403
-            
-        user_location = request.json.get('latitude'), request.json.get('longitude')
-        logger.info(f"User location: {user_location}")
+    global logged_in_user
+    if not logged_in_user:
+        return jsonify({'status': 'error', 'message': 'Not logged in'}), 403
         
-        if None in user_location:
-            logger.error("Invalid coordinates received")
-            return jsonify({'status': 'error', 'message': 'Invalid coordinates'}), 400
+    data = request.get_json()
+    if not data:
+        return jsonify({'status': 'error', 'message': 'No data provided'}), 400
         
-        distance = calculate_distance(user_location)
-        logger.info(f"Calculated distance: {distance}")
+    latitude = data.get('latitude')
+    longitude = data.get('longitude')
+    
+    if latitude is None or longitude is None:
+        return jsonify({'status': 'error', 'message': 'Missing coordinates'}), 400
         
-        status = 'Inside Geofence' if distance <= geofence_radius else 'Outside Geofence'
-        return jsonify({'status': status, 'distance': distance})
-    except Exception as e:
-        logger.error(f"Geofence error: {str(e)}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
+    user_location = (float(latitude), float(longitude))
+    distance = calculate_distance(user_location)
+    
+    status = 'Inside Geofence' if distance <= geofence_radius else 'Outside Geofence'
+    return jsonify({'status': status, 'distance': distance})
+    
 @app.route('/last_punch_status', methods=['GET'])
 def last_punch_status():
     global logged_in_user
