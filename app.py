@@ -3,8 +3,13 @@ sys.path.append(r'C:\users\kalpe\appData\roaming\python\python312\site-packages'
 
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
 from haversine import haversine, Unit
-from pymongo import MongoClient
-import datetime
+from pymongo import MongoClient, DESCENDING
+from bson import ObjectId
+import json
+from datetime import datetime, timedelta
+
+# Add this custom JSON encoder to handle ObjectI
+
 
 app = Flask(__name__)
 
@@ -17,14 +22,57 @@ punch_collection = db['punch_records']
 geofence_center = (22.27174507140292, 73.17586006441583)  # Example coordinates
 geofence_radius = 1000000  # 1000 meters radius
 
+
+
 # Predefined users and their credentials (username, password)
 users = {
     "user1": "password1",
     "user2": "password2",
     "user3": "password3",
+    "admin": "adminpass" ,
 }
 
 logged_in_user = None
+
+class MongoJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, ObjectId):
+            return str(o)
+        return super().default(o)
+
+def get_time_with_offset():
+    """Returns the current time with a +5:30 offset (IST)."""
+    current_time = datetime.utcnow()  # Get current UTC time
+    offset = timedelta(hours=5, minutes=30)  # IST offset
+    ist_time = current_time + offset
+    return ist_time
+
+def get_user_last_punch(username):
+    """Get the last punch record for a specific user"""
+    last_punch = punch_collection.find_one(
+        {"username": username},
+        sort=[("timestamp", -1)]
+    )
+    
+    # Check if last punch was more than 36 hours ago
+    if last_punch:
+        current_time = get_time_with_offset()
+        time_difference = current_time - last_punch['timestamp']
+        if time_difference.total_seconds() > (36 * 3600):  # 36 hours in seconds
+            return None  # This will reset to Punch In state
+    
+    return last_punch
+
+def calculate_work_duration(punch_in_time, punch_out_time):
+    """Calculate duration between punch in and punch out"""
+    if not punch_in_time or not punch_out_time:
+        return None
+    
+    duration = punch_out_time - punch_in_time
+    hours = duration.total_seconds() / 3600
+    return round(hours, 2)
+
+
 
 # Haversine formula to calculate distance
 def calculate_distance(user_location):
@@ -130,6 +178,7 @@ LOGIN_PAGE = """
             <option value="user1">User 1</option>
             <option value="user2">User 2</option>
             <option value="user3">User 3</option>
+            <option value="admin">User 3</option>
         </select><br><br>
         
         <label for="password">Password:</label>
@@ -155,6 +204,8 @@ HTML_TEMPLATE = """
         setTimeout(function() {
             window.location.href = '/logout'; // Redirect to the logout route
         }, 50000); // 50 seconds in milliseconds
+
+        
     </script>    
     <style>
         .punch-circle {
@@ -192,6 +243,16 @@ HTML_TEMPLATE = """
         #punch-history ul {
             list-style-type: none;
         }
+        .remark-section {
+            margin-bottom: 20px;
+        }
+       .remark-input {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
         #user-coordinates {
             margin-top: 10px;
             font-weight: bold;
@@ -209,12 +270,16 @@ HTML_TEMPLATE = """
             <p>Geofence Status: <span id="geofence-indicator">Checking...</span></p>
             <p id="user-coordinates" style="display: none;">Your Location: <span id="coordinates"></span></p>
         </section>
-     
 
-        <section id="punch-controls">
+        <section id="punch-controls">           
             <div id="punch-in" class="punch-circle punch-in" style="display: none;">Punch In</div>
             <div id="punch-out" class="punch-circle punch-out" style="display: none;">Punch Out</div>
-        </section>
+            <div class="remark-section">
+                <label for="user-remark">Remark (optional):</label>
+                <input type="text" id="user-remark" class="remark-input" placeholder="Enter your remark">
+            </div>
+        </section>    
+
 
         <section id="punch-history">
             <h2>Punch History</h2>
@@ -231,157 +296,464 @@ HTML_TEMPLATE = """
         <p>&copy; 2025 Attendance System</p>
     </footer>
 
-<script>
-    let hasPunchedIn = false;
-    let isProcessing = false; // Flag to prevent multiple clicks
 
-    // Fetch user's location using Geolocation API
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const userLat = position.coords.latitude;
-                const userLng = position.coords.longitude;
+    <script>
+        let hasPunchedIn = {{ 'true' if initial_status == 'Punch In' else 'false' }};
+        let isProcessing = false;
 
-                // Send location to the server to check geofence status
-                fetch('/get_geofence_status', {
+        function updateButtonVisibility() {
+            if (hasPunchedIn) {
+                document.getElementById('punch-in').style.display = 'none';
+                document.getElementById('punch-out').style.display = 'block';
+            } else {
+                document.getElementById('punch-in').style.display = 'block';
+                document.getElementById('punch-out').style.display = 'none';
+            }
+        }
+
+        function checkLastPunchStatus() {
+            fetch('/last_punch_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.action) {
+                        const lastPunchTime = new Date(data.timestamp);
+                        const currentTime = new Date();
+                        const hoursDifference = (currentTime - lastPunchTime) / (1000 * 60 * 60);
+                    
+                        if (hoursDifference > 36) {
+                            hasPunchedIn = false;
+                        } else {
+                            hasPunchedIn = (data.action === 'Punch In');
+                        }
+                        updateButtonVisibility();
+                    }
+                });
+        }
+
+        // Call this function on page load
+        checkLastPunchStatus();
+        
+        // Get user's location and check geofence
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const userLat = position.coords.latitude;
+                    const userLng = position.coords.longitude;
+
+                    fetch('/get_geofence_status', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ latitude: userLat, longitude: userLng })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('geofence-indicator').innerText = data.status;
+
+                        if (data.status === 'Outside Geofence') {
+                            const coordinates = `Lat: ${userLat}, Lng: ${userLng}`;
+                            document.getElementById('coordinates').innerText = coordinates;
+                            document.getElementById('user-coordinates').style.display = 'block';
+                            document.getElementById('punch-in').style.display = 'none';
+                            document.getElementById('punch-out').style.display = 'none';
+                        } else {
+                            updateButtonVisibility();
+                        }
+                    });
+                },
+                (error) => {
+                    console.error("Geolocation Error:", error.message);
+                    document.getElementById('geofence-indicator').innerText = "Location Error";
+                }
+            );
+        } else {
+            console.error("Geolocation not supported by this browser.");
+            document.getElementById('geofence-indicator').innerText = "Geolocation not supported.";
+        }
+
+        // Handle punch actions
+        document.getElementById('punch-in').addEventListener('click', () => {
+            if (!isProcessing) {
+                handlePunchAction('Punch In');
+            }
+        });
+
+        document.getElementById('punch-out').addEventListener('click', () => {
+            if (!isProcessing) {
+                handlePunchAction('Punch Out');
+            }
+        });
+
+        function handlePunchAction(action) {
+            isProcessing = true;
+            showStatusMessage("Your input is getting saved...");
+            disableButtons();
+
+            const userRemark = document.getElementById('user-remark').value;
+            
+            navigator.geolocation.getCurrentPosition((position) => {
+                fetch('/punch', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ latitude: userLat, longitude: userLng })
+                    body: JSON.stringify({
+                        action: action,
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        userRemark: userRemark
+                    })
                 })
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('geofence-indicator').innerText = data.status;
-
-                    if (data.status === 'Outside Geofence') {
-                        const coordinates = `Lat: ${userLat}, Lng: ${userLng}`;
-                        document.getElementById('coordinates').innerText = coordinates;
-                        document.getElementById('user-coordinates').style.display = 'block';
-                        document.getElementById('punch-in').style.display = 'none';
-                        document.getElementById('punch-out').style.display = 'none';
-                    } else {
-                        updateButtonVisibilityBasedOnLastPunch(); // Update button visibility based on last punch
-                    }
+                    addPunchRecord(data.message);
+                    hasPunchedIn = (action === 'Punch In');
+                    updateButtonVisibility();
+                    showStatusMessage("Your input is saved!");
+                    setTimeout(() => {
+                        isProcessing = false;
+                        enableButtons();
+                    }, 5000);
                 });
-            },
-            (error) => {
-                console.error("Geolocation Error:", error.message);
-                document.getElementById('geofence-indicator').innerText = "Location Error";
-            }
-        );
-    } else {
-        console.error("Geolocation not supported by this browser.");
-        document.getElementById('geofence-indicator').innerText = "Geolocation not supported.";
-    }
+            });
+        }
 
-    // Fetch the last punch status from the server
-    function updateButtonVisibilityBasedOnLastPunch() {
+        function addPunchRecord(record) {
+            const listItem = document.createElement('li');
+            listItem.textContent = record;
+            document.getElementById('history-list').insertBefore(listItem, document.getElementById('history-list').firstChild);
+        }
+
+        function showStatusMessage(message) {
+            const statusElement = document.createElement('p');
+            statusElement.id = 'status-message';
+            statusElement.textContent = message;
+            document.body.appendChild(statusElement);
+
+            setTimeout(() => {
+                const existingStatusElement = document.getElementById('status-message');
+                if (existingStatusElement) {
+                    existingStatusElement.remove();
+                }
+            }, 5000);
+        }
+
+        function disableButtons() {
+            document.getElementById('punch-in').disabled = true;
+            document.getElementById('punch-out').disabled = true;
+        }
+
+        function enableButtons() {
+            document.getElementById('punch-in').disabled = false;
+            document.getElementById('punch-out').disabled = false;
+        }
+
+        // Load punch history on page load
         fetch('/last_punch_status')
             .then(response => response.json())
             .then(data => {
-                if (data.action === 'Punch In') {
-                    hasPunchedIn = true;
-                } else if (data.action === 'Punch Out') {
-                    hasPunchedIn = false;
+                if (data.action) {
+                    addPunchRecord(`Last ${data.action} at ${data.timestamp}`);
                 }
-                updateButtonVisibility();
             });
-    }
+    </script>
 
-    // Punch actions
-    document.getElementById('punch-in').addEventListener('click', () => {
-        if (!isProcessing) {
-            handlePunchAction('Punch In');
-        }
-    });
-
-    document.getElementById('punch-out').addEventListener('click', () => {
-        if (!isProcessing) {
-            handlePunchAction('Punch Out');
-        }
-    });
-
-    // Handle punch action with feedback and prevention of multiple clicks
-    function handlePunchAction(action) {
-        isProcessing = true; // Prevent further clicks
-        showStatusMessage("Your input is getting saved...");
-        disableButtons();
-
-        navigator.geolocation.getCurrentPosition((position) => {
-            const userLat = position.coords.latitude;
-            const userLng = position.coords.longitude;
-            fetch('/punch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: action,
-                    latitude: userLat,
-                    longitude: userLng
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                addPunchRecord(data.message);
-                hasPunchedIn = (action === 'Punch In'); // Update status locally
-                updateButtonVisibility();
-                showStatusMessage("Your input is saved!");
-                setTimeout(() => {
-                    isProcessing = false; // Re-enable clicks after delay
-                    enableButtons();
-                }, 5000); // 5-second delay
-            });
-        });
-    }
-
-    function updateButtonVisibility() {
-        if (hasPunchedIn) {
-            document.getElementById('punch-in').style.display = 'none';
-            document.getElementById('punch-out').style.display = 'block';
-        } else {
-            document.getElementById('punch-in').style.display = 'block';
-            document.getElementById('punch-out').style.display = 'none';
-        }
-    }
-
-    // Utility to add punch record to the history
-    function addPunchRecord(record) {
-        const listItem = document.createElement('li');
-        listItem.textContent = record;
-        document.getElementById('history-list').appendChild(listItem);
-    }
-
-    // Show status messages to the user
-    function showStatusMessage(message) {
-        const statusElement = document.createElement('p');
-        statusElement.id = 'status-message';
-        statusElement.textContent = message;
-        document.body.appendChild(statusElement);
-
-        // Remove message after some time
-        setTimeout(() => {
-            const existingStatusElement = document.getElementById('status-message');
-            if (existingStatusElement) {
-                existingStatusElement.remove();
-            }
-        }, 5000);
-    }
-
-    // Disable punch buttons
-    function disableButtons() {
-        document.getElementById('punch-in').disabled = true;
-        document.getElementById('punch-out').disabled = true;
-    }
-
-    // Enable punch buttons
-    function enableButtons() {
-        document.getElementById('punch-in').disabled = false;
-        document.getElementById('punch-out').disabled = false;
-    }
-</script>
 
 
 </body>
 </html>
 """
+
+ADMIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Attendance System</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: white;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        select {
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 120px;
+        }
+        .save-btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        .save-btn:hover {
+            background-color: #45a049;
+        }
+        .status-pending {
+            color: #f0ad4e;
+        }
+        .status-approved {
+            color: #5cb85c;
+        }
+        .status-rejected {
+            color: #d9534f;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .logout-btn {
+            background-color: #dc3545;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .filter-section {
+            margin-bottom: 20px;
+        }
+        .filter-section select {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Admin Dashboard</h1>
+            <form method="POST" action="/logout" style="margin: 0;">
+                <button type="submit" class="logout-btn">Logout</button>
+            </form>
+        </div>
+        
+        <div class="filter-section">
+            <select id="userFilter" onchange="filterRecords()">
+                <option value="">All Users</option>
+                <option value="user1">User 1</option>
+                <option value="user2">User 2</option>
+                <option value="user3">User 3</option>
+            </select>
+            <select id="statusFilter" onchange="filterRecords()">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+            </select>
+        </div>
+
+        <table id="attendanceTable">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Action</th>
+                    <th>Date & Time</th>
+                    <th>Status</th>
+                    <th>Status Changed At</th>
+                    <th>Work Duration (Hours)</th>
+                    <th>Admin Remark</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr data-username="{{ record.username }}" data-status="{{ record.status }}">
+                    <td>{{ record.username }}</td>
+                    <td>{{ record.action }}</td>
+                    <td>{{ record.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ record.userRemark or '' }}</td>
+                    <td>
+                        <select class="status-select" data-record-id="{{ record._id }}">
+                            <option value="pending" {% if record.status == 'pending' %}selected{% endif %}>Pending</option>
+                            <option value="approved" {% if record.status == 'approved' %}selected{% endif %}>Approved</option>
+                            <option value="rejected" {% if record.status == 'rejected' %}selected{% endif %}>Rejected</option>
+                        </select>
+                    </td>
+                    <td>{{ record.statusChangedAt.strftime('%Y-%m-%d %H:%M:%S') if record.statusChangedAt else '' }}</td>                    
+                    <td>{{ record.workDuration if record.workDuration is not none else '' }}</td>
+                    <td>
+                        <input type="text" class="admin-remark" data-record-id="{{ record._id }}" 
+                               value="{{ record.adminRemark or '' }}" placeholder="Add remark">
+                    </td>                
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <button onclick="saveChanges()" class="save-btn">Save Changes</button>
+    </div>
+
+    <script>
+        let changedRecords = new Set();
+
+        function filterRecords() {
+            const userFilter = document.getElementById('userFilter').value;
+            const statusFilter = document.getElementById('statusFilter').value;
+            const rows = document.querySelectorAll('#attendanceTable tbody tr');
+
+            rows.forEach(row => {
+                const username = row.getAttribute('data-username');
+                const status = row.getAttribute('data-status');
+                const userMatch = !userFilter || username === userFilter;
+                const statusMatch = !statusFilter || status === statusFilter;
+                row.style.display = userMatch && statusMatch ? '' : 'none';
+            });
+        }
+
+
+        document.querySelectorAll('.status-select').forEach(select => {
+            select.addEventListener('change', function() {
+                changedRecords.add(this.dataset.recordId);
+                const row = this.closest('tr');
+                row.setAttribute('data-status', this.value);
+            });
+        });
+
+        function saveChanges() {
+            const updates = Array.from(changedRecords).map(recordId => {
+                const select = document.querySelector(`select[data-record-id="${recordId}"]`);
+                const remarkInput = document.querySelector(`input.admin-remark[data-record-id="${recordId}"]`);
+        
+                return {
+                    recordId: recordId,
+                    status: select.value,
+                    adminRemark: remarkInput.value
+                };
+            });
+
+            if (updates.length === 0) {
+                alert('No changes to save');
+                return;
+            }
+
+            fetch('/update_status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ updates: updates })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('Changes saved successfully');
+                    changedRecords.clear();
+                    
+                    // Update the data-status attributes for filtered views
+                    updates.forEach(update => {
+                        const select = document.querySelector(`select[data-record-id="${update.recordId}"]`);
+                        const row = select ? select.closest('tr') : null;
+                        if (row) {
+                            row.setAttribute('data-status', update.status);
+                        }
+                    });
+                } else {
+                    alert(data.message || 'Error saving changes');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error saving changes: ' + error.message);
+            });
+        }
+
+        // Add error handler for initial page load
+        window.addEventListener('error', function(e) {
+            console.error('Page Error:', e.error);
+        });
+    </script>
+</body>
+</html>
+"""
+
+@app.route("/admin", methods=["GET"])
+def admin_page():
+    global logged_in_user
+    if logged_in_user != "admin":
+        return redirect(url_for("login"))
+    
+    # Fetch all punch records from MongoDB
+    records = list(punch_collection.find().sort("timestamp", DESCENDING))
+    return render_template_string(ADMIN_TEMPLATE, records=records)
+
+@app.route("/update_status", methods=["POST"])
+def update_status():
+    global logged_in_user
+    if logged_in_user != "admin":
+        return jsonify({"status": "error", "message": "Unauthorized"}), 403
+
+    try:
+        updates = request.json.get('updates', [])
+        
+        for update in updates:
+            record_id = update['recordId']
+            new_status = update['status']
+            admin_remark = update.get('adminRemark', '')
+            
+            # Convert string ID to ObjectId
+            object_id = ObjectId(record_id)
+            
+            # Update the record
+            result = punch_collection.update_one(
+                {"_id": object_id},
+                {"$set": {
+                        "status": new_status,
+                        "adminRemark": admin_remark,
+                        "statusChangedAt": get_time_with_offset()
+                    }}
+            )
+            
+            if result.modified_count == 0:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Record {record_id} not found or not modified"
+                }), 400
+
+        return jsonify({"status": "success", "message": "Records updated successfully"})
+
+    except Exception as e:
+        print(f"Error updating status: {str(e)}")  # For debugging
+        return jsonify({
+            "status": "error",
+            "message": f"Error updating records: {str(e)}"
+        }), 500
+
 @app.route("/", methods=["GET", "POST"])
 def login():
     global logged_in_user
@@ -390,23 +762,26 @@ def login():
         password = request.form.get("password")
 
         if username in users and users[username] == password:
-            logged_in_user = username  # Set logged-in user
+            logged_in_user = username
+            if username == "admin":
+                return redirect(url_for("admin_page"))
             return redirect(url_for("main_page"))
         else:
             error = "Invalid username or password."
             return render_template_string(LOGIN_PAGE, error=error)
     
-    # Reset login state on reload
     logged_in_user = None
     return render_template_string(LOGIN_PAGE)
 
 @app.route("/main", methods=["GET"])
 def main_page():
     global logged_in_user
-    if logged_in_user:  # Check if a user is logged in
-        return render_template_string(HTML_TEMPLATE, username=logged_in_user)
-    else:
-        return redirect(url_for("login"))
+    if logged_in_user:
+        # Get user's last punch status from MongoDB
+        last_punch = get_user_last_punch(logged_in_user)
+        initial_status = last_punch['action'] if last_punch else None
+        return render_template_string(HTML_TEMPLATE, username=logged_in_user, initial_status=initial_status)
+    return redirect(url_for("login"))
 
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
@@ -417,6 +792,10 @@ def logout():
 
 @app.route('/get_geofence_status', methods=['POST'])
 def get_geofence_status():
+    global logged_in_user
+    if not logged_in_user:
+        return jsonify({'status': 'error', 'message': 'Not logged in'}), 403
+        
     user_location = request.json.get('latitude'), request.json.get('longitude')
     distance = calculate_distance(user_location)
     status = 'Inside Geofence' if distance <= geofence_radius else 'Outside Geofence'
@@ -424,32 +803,79 @@ def get_geofence_status():
 
 @app.route('/last_punch_status', methods=['GET'])
 def last_punch_status():
-    last_punch = punch_collection.find_one(sort=[("timestamp", -1)])  # Get the last punch record
+    global logged_in_user
+    if not logged_in_user:
+        return jsonify({'action': None})
+    
+    last_punch = get_user_last_punch(logged_in_user)
     if last_punch:
         return jsonify({
             'action': last_punch['action'],
             'timestamp': last_punch['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
         })
-    return jsonify({'action': None})  # No punch record found
+    return jsonify({'action': None})
 
+@app.errorhandler(404)
+def not_found_error(error):
+    return redirect(url_for('login'))
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'status': 'error', 'message': 'Internal server error'}), 500
 
 @app.route('/punch', methods=['POST'])
-def punch():
-    action = request.json.get('action')
-    latitude = request.json.get('latitude')
-    longitude = request.json.get('longitude')
-    timestamp = datetime.datetime.now()
+def punch_action():
+    global logged_in_user
+    if not logged_in_user:
+        return jsonify({"status": "error", "message": "User not logged in"}), 403
 
-    # Store the record in MongoDB
+    data = request.json
+    action = data.get('action')
+    latitude = data.get('latitude')
+    longitude = data.get('longitude')
+    userRemark = data.get('userRemark', '')
+
+    if not action or latitude is None or longitude is None:
+        return jsonify({"status": "error", "message": "Invalid data"}), 400
+
+    user_location = (latitude, longitude)
+    distance = calculate_distance(user_location)
+
+    if distance > geofence_radius:
+        return jsonify({"status": "error", "message": "Outside Geofence"}), 403
+
     punch_record = {
-        'action': action,
-        'latitude': latitude,
-        'longitude': longitude,
-        'timestamp': timestamp
+        "username": logged_in_user,
+        "action": action,
+        "latitude": latitude,
+        "longitude": longitude,
+        "distance_from_center": distance,
+        "timestamp": get_time_with_offset(),
+        "status": "pending",
+        "userRemark": userRemark,
+        "statusChangedAt": None,
+        "adminRemark": "",
+        "workDuration": None
     }
-    punch_collection.insert_one(punch_record)
 
-    return jsonify({'message': f"{action} at {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"})
+
+    if action == "Punch Out":
+        last_punch_in = punch_collection.find_one(
+            {
+                "username": logged_in_user,
+                "action": "Punch In"
+            },
+            sort=[("timestamp", -1)]
+        )
+        if last_punch_in:
+            duration = calculate_work_duration(last_punch_in['timestamp'], get_time_with_offset())
+            punch_record['workDuration'] = duration
+
+    result = punch_collection.insert_one(punch_record)
+    return jsonify({
+        "status": "success", 
+        "message": f"{action} recorded for {logged_in_user}"
+    }), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
