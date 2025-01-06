@@ -7,7 +7,12 @@ from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
 import json
 from datetime import datetime, timedelta
+import logging
+from flask import current_app
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 # Add this custom JSON encoder to handle ObjectI
 
 
@@ -792,14 +797,26 @@ def logout():
 
 @app.route('/get_geofence_status', methods=['POST'])
 def get_geofence_status():
-    global logged_in_user
-    if not logged_in_user:
-        return jsonify({'status': 'error', 'message': 'Not logged in'}), 403
+    try:
+        if not logged_in_user:
+            logger.error("User not logged in")
+            return jsonify({'status': 'error', 'message': 'Not logged in'}), 403
+            
+        user_location = request.json.get('latitude'), request.json.get('longitude')
+        logger.info(f"User location: {user_location}")
         
-    user_location = request.json.get('latitude'), request.json.get('longitude')
-    distance = calculate_distance(user_location)
-    status = 'Inside Geofence' if distance <= geofence_radius else 'Outside Geofence'
-    return jsonify({'status': status, 'distance': distance})
+        if None in user_location:
+            logger.error("Invalid coordinates received")
+            return jsonify({'status': 'error', 'message': 'Invalid coordinates'}), 400
+        
+        distance = calculate_distance(user_location)
+        logger.info(f"Calculated distance: {distance}")
+        
+        status = 'Inside Geofence' if distance <= geofence_radius else 'Outside Geofence'
+        return jsonify({'status': status, 'distance': distance})
+    except Exception as e:
+        logger.error(f"Geofence error: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/last_punch_status', methods=['GET'])
 def last_punch_status():
@@ -825,57 +842,85 @@ def internal_error(error):
 
 @app.route('/punch', methods=['POST'])
 def punch_action():
-    global logged_in_user
-    if not logged_in_user:
-        return jsonify({"status": "error", "message": "User not logged in"}), 403
+    try:
+        if not logged_in_user:
+            logger.error("Punch attempt without login")
+            return jsonify({"status": "error", "message": "User not logged in"}), 403
 
-    data = request.json
-    action = data.get('action')
-    latitude = data.get('latitude')
-    longitude = data.get('longitude')
-    userRemark = data.get('userRemark', '')
+        data = request.json
+        logger.info(f"Received punch data: {data}")
 
-    if not action or latitude is None or longitude is None:
-        return jsonify({"status": "error", "message": "Invalid data"}), 400
+        action = data.get('action')
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+        userRemark = data.get('userRemark', '')
 
-    user_location = (latitude, longitude)
-    distance = calculate_distance(user_location)
+        if not all([action, latitude is not None, longitude is not None]):
+            logger.error("Missing required punch data")
+            return jsonify({"status": "error", "message": "Invalid data"}), 400
 
-    if distance > geofence_radius:
-        return jsonify({"status": "error", "message": "Outside Geofence"}), 403
+        user_location = (latitude, longitude)
+        distance = calculate_distance(user_location)
+        logger.info(f"Distance from geofence center: {distance}")
 
-    punch_record = {
-        "username": logged_in_user,
-        "action": action,
-        "latitude": latitude,
-        "longitude": longitude,
-        "distance_from_center": distance,
-        "timestamp": get_time_with_offset(),
-        "status": "pending",
-        "userRemark": userRemark,
-        "statusChangedAt": None,
-        "adminRemark": "",
-        "workDuration": None
-    }
+        if distance > geofence_radius:
+            logger.warning(f"User outside geofence. Distance: {distance}")
+            return jsonify({"status": "error", "message": "Outside Geofence"}), 403
 
+        current_time = get_time_with_offset()
+        punch_record = {
+            "username": logged_in_user,
+            "action": action,
+            "latitude": latitude,
+            "longitude": longitude,
+            "distance_from_center": distance,
+            "timestamp": current_time,
+            "status": "pending",
+            "userRemark": userRemark,
+            "statusChangedAt": None,
+            "adminRemark": "",
+            "workDuration": None
+        }
 
-    if action == "Punch Out":
-        last_punch_in = punch_collection.find_one(
-            {
-                "username": logged_in_user,
-                "action": "Punch In"
-            },
-            sort=[("timestamp", -1)]
-        )
-        if last_punch_in:
-            duration = calculate_work_duration(last_punch_in['timestamp'], get_time_with_offset())
-            punch_record['workDuration'] = duration
+        if action == "Punch Out":
+            try:
+                last_punch_in = punch_collection.find_one(
+                    {
+                        "username": logged_in_user,
+                        "action": "Punch In"
+                    },
+                    sort=[("timestamp", -1)]
+                )
+                if last_punch_in:
+                    duration = calculate_work_duration(last_punch_in['timestamp'], current_time)
+                    punch_record['workDuration'] = duration
+                    logger.info(f"Calculated work duration: {duration}")
+            except Exception as e:
+                logger.error(f"Error calculating work duration: {str(e)}")
 
-    result = punch_collection.insert_one(punch_record)
-    return jsonify({
-        "status": "success", 
-        "message": f"{action} recorded for {logged_in_user}"
-    }), 200
+        try:
+            result = punch_collection.insert_one(punch_record)
+            logger.info(f"Punch record inserted. ID: {result.inserted_id}")
+            return jsonify({
+                "status": "success", 
+                "message": f"{action} recorded for {logged_in_user}"
+            }), 200
+        except Exception as e:
+            logger.error(f"MongoDB insert error: {str(e)}")
+            return jsonify({"status": "error", "message": "Database error"}), 500
+
+    except Exception as e:
+        logger.error(f"Punch action error: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.before_request
+def check_mongo_connection():
+    try:
+        # Ping MongoDB
+        client.admin.command('ping')
+    except Exception as e:
+        logger.error(f"MongoDB connection error: {str(e)}")
+        return jsonify({"status": "error", "message": "Database connection error"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
