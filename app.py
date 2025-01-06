@@ -303,122 +303,153 @@ HTML_TEMPLATE = """
 
 
     <script>
-        let hasPunchedIn = {{ 'true' if initial_status == 'Punch In' else 'false' }};
-        let isProcessing = false;
+let hasPunchedIn = {{ 'true' if initial_status == 'Punch In' else 'false' }};
+let isProcessing = false;
 
-        function updateButtonVisibility() {
-            if (hasPunchedIn) {
-                document.getElementById('punch-in').style.display = 'none';
-                document.getElementById('punch-out').style.display = 'block';
-            } else {
-                document.getElementById('punch-in').style.display = 'block';
-                document.getElementById('punch-out').style.display = 'none';
+function updateButtonVisibility() {
+    if (hasPunchedIn) {
+        document.getElementById('punch-in').style.display = 'none';
+        document.getElementById('punch-out').style.display = 'block';
+    } else {
+        document.getElementById('punch-in').style.display = 'block';
+        document.getElementById('punch-out').style.display = 'none';
+    }
+}
+
+function checkLastPunchStatus() {
+    fetch('/last_punch_status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.action) {
+                const lastPunchTime = new Date(data.timestamp);
+                const currentTime = new Date();
+                const hoursDifference = (currentTime - lastPunchTime) / (1000 * 60 * 60);
+                hasPunchedIn = hoursDifference <= 36 && (data.action === 'Punch In');
+                updateButtonVisibility();
             }
-        }
+        });
+}
 
-        function checkLastPunchStatus() {
-            fetch('/last_punch_status')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.action) {
-                        const lastPunchTime = new Date(data.timestamp);
-                        const currentTime = new Date();
-                        const hoursDifference = (currentTime - lastPunchTime) / (1000 * 60 * 60);
-                    
-                        if (hoursDifference > 36) {
-                            hasPunchedIn = false;
-                        } else {
-                            hasPunchedIn = (data.action === 'Punch In');
-                        }
-                        updateButtonVisibility();
-                    }
-                });
-        }
+function checkGeofenceStatus(position) {
+    const userLat = position.coords.latitude;
+    const userLng = position.coords.longitude;
 
-        // Call this function on page load
-        checkLastPunchStatus();
-        
-        // Get user's location and check geofence
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const userLat = position.coords.latitude;
-                    const userLng = position.coords.longitude;
+    return fetch('/get_geofence_status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: userLat, longitude: userLng })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('geofence-indicator').innerText = data.status;
 
-                    fetch('/get_geofence_status', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ latitude: userLat, longitude: userLng })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        document.getElementById('geofence-indicator').innerText = data.status;
-
-                        if (data.status === 'Outside Geofence') {
-                            const coordinates = `Lat: ${userLat}, Lng: ${userLng}`;
-                            document.getElementById('coordinates').innerText = coordinates;
-                            document.getElementById('user-coordinates').style.display = 'block';
-                            document.getElementById('punch-in').style.display = 'none';
-                            document.getElementById('punch-out').style.display = 'none';
-                        } else {
-                            updateButtonVisibility();
-                        }
-                    });
-                },
-                (error) => {
-                    console.error("Geolocation Error:", error.message);
-                    document.getElementById('geofence-indicator').innerText = "Location Error";
-                }
-            );
+        if (data.status === 'Outside Geofence') {
+            document.getElementById('coordinates').innerText = `Lat: ${userLat}, Lng: ${userLng}`;
+            document.getElementById('user-coordinates').style.display = 'block';
+            document.getElementById('punch-in').style.display = 'none';
+            document.getElementById('punch-out').style.display = 'none';
         } else {
-            console.error("Geolocation not supported by this browser.");
-            document.getElementById('geofence-indicator').innerText = "Geolocation not supported.";
+            document.getElementById('user-coordinates').style.display = 'none';
+            updateButtonVisibility();
         }
+    })
+    .catch(error => {
+        console.error('Geofence Error:', error);
+        document.getElementById('geofence-indicator').innerText = 'Error checking location';
+    });
+}
 
-        // Handle punch actions
-        document.getElementById('punch-in').addEventListener('click', () => {
-            if (!isProcessing) {
-                handlePunchAction('Punch In');
+function requestLocationPermission() {
+    if (!navigator.geolocation) {
+        document.getElementById('geofence-indicator').innerText = 'Geolocation not supported';
+        return;
+    }
+
+    const options = {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+    };
+
+    navigator.geolocation.watchPosition(
+        checkGeofenceStatus,
+        (error) => {
+            let message = 'Location error: ';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    message += 'Please enable location services';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    message += 'Location unavailable';
+                    break;
+                case error.TIMEOUT:
+                    message += 'Request timed out';
+                    break;
+                default:
+                    message += 'Unknown error';
             }
-        });
+            document.getElementById('geofence-indicator').innerText = message;
+        },
+        options
+    );
+}
 
-        document.getElementById('punch-out').addEventListener('click', () => {
-            if (!isProcessing) {
-                handlePunchAction('Punch Out');
-            }
-        });
+function handlePunchAction(action) {
+    if (isProcessing) return;
+    
+    isProcessing = true;
+    showStatusMessage("Processing...");
+    disableButtons();
 
-        function handlePunchAction(action) {
-            isProcessing = true;
-            showStatusMessage("Your input is getting saved...");
-            disableButtons();
-
-            const userRemark = document.getElementById('user-remark').value;
-            
-            navigator.geolocation.getCurrentPosition((position) => {
-                fetch('/punch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: action,
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                        userRemark: userRemark
-                    })
+    const userRemark = document.getElementById('user-remark').value;
+    
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            fetch('/punch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: action,
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    userRemark: userRemark
                 })
-                .then(response => response.json())
-                .then(data => {
-                    addPunchRecord(data.message);
-                    hasPunchedIn = (action === 'Punch In');
-                    updateButtonVisibility();
-                    showStatusMessage("Your input is saved!");
-                    setTimeout(() => {
-                        isProcessing = false;
-                        enableButtons();
-                    }, 5000);
-                });
+            })
+            .then(response => response.json())
+            .then(data => {
+                addPunchRecord(data.message);
+                hasPunchedIn = (action === 'Punch In');
+                updateButtonVisibility();
+                showStatusMessage("Saved successfully!");
+            })
+            .catch(error => {
+                console.error('Punch Error:', error);
+                showStatusMessage("Error saving punch!");
+            })
+            .finally(() => {
+                setTimeout(() => {
+                    isProcessing = false;
+                    enableButtons();
+                }, 5000);
             });
+        },
+        (error) => {
+            console.error('Location Error:', error);
+            showStatusMessage("Location error!");
+            isProcessing = false;
+            enableButtons();
         }
+    );
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    checkLastPunchStatus();
+    requestLocationPermission();
+    
+    document.getElementById('punch-in').addEventListener('click', () => handlePunchAction('Punch In'));
+    document.getElementById('punch-out').addEventListener('click', () => handlePunchAction('Punch Out'));
+});
 
         function addPunchRecord(record) {
             const listItem = document.createElement('li');
