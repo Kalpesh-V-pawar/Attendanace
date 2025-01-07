@@ -32,10 +32,11 @@ geofence_radius = 1000000  # 1000 meters radius
 
 # Predefined users and their credentials (username, password)
 users = {
-    "user1": "password1",
-    "user2": "password2",
-    "user3": "password3",
-    "admin": "adminpass" ,
+    "user1": "19581",
+    "user2": "18493",
+    "user3": "17026",
+    "user4": "2024",
+    "admin": "Kal180" ,
 }
 
 logged_in_user = None
@@ -214,10 +215,12 @@ LOGIN_PAGE = """
         <form method="POST">
             <label for="username">Select Username:</label>
             <select id="username" name="username" required>
-                <option value="user1">User 1</option>
-                <option value="user2">User 2</option>
-                <option value="user3">User 3</option>
-                <option value="admin">Admin</option>
+                <option value="" selected disabled>Select User</option>
+                <option value="user1">Nirav</option>
+                <option value="user2">Vikram</option>
+                <option value="user3">Mitesh</option>
+                <option value="user4">Test</option>
+                <option value="admin">Kalpesh</option>
             </select>
             
             <label for="password">Password:</label>
@@ -701,9 +704,10 @@ ADMIN_TEMPLATE = """
         <div class="filter-section">
             <select id="userFilter" onchange="filterRecords()">
                 <option value="">All Users</option>
-                <option value="user1">User 1</option>
-                <option value="user2">User 2</option>
-                <option value="user3">User 3</option>
+                <option value="user1">Nirav</option>
+                <option value="user2">Vikram</option>
+                <option value="user3">Mitesh</option>
+                <option value="user4">Test</option>
             </select>
             <select id="statusFilter" onchange="filterRecords()">
                 <option value="">All Statuses</option>
