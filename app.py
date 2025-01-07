@@ -111,54 +111,86 @@ LOGIN_PAGE = """
     <title>Login</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
             margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #ff7eb3, #ff758c, #fdb15c, #ffde59, #a7ff83, #17c3b2, #2d6cdf, #7c5cdb);
+            background-size: 300% 300%;
+            animation: gradientBG 10s ease infinite;
+            color: #ffffff;
         }
+
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
         .container {
-            max-width: 200px;
-            margin: 40px auto;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 100%; /* Ensures responsiveness */
+            background : linear-gradient(135deg, #30343F, #404452);
+            margin: 20px auto;
+            padding: 30px;
+            border-radius: 25px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3); /* Adds depth */
+            color: white;
+            min-height : 400px
         }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 16px;
+        }
+      
         h1, h2 {
-            color: #333;
+            color: white;
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
         }
         .form-group {
             margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            color: white
         }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #555;
-        }
+
         select, input {
+            padding: 10px;
             width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            margin-bottom: 18px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 16px;
             box-sizing: border-box;
         }
+
         button {
             width: 100%;
-            padding: 10px;
+            padding: 12px 20px;
             background-color: #4CAF50;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 16px;
-            transition: background-color 0.3s;
+            font-size: 18px;
+            transition: background-color 0.3s ease;
         }
+
         button:hover {
-            background-color: #45a049;
+            background-color: orange;
         }
+
         .error {
             color: #dc3545;
             padding: 10px;
@@ -166,6 +198,7 @@ LOGIN_PAGE = """
             border-radius: 4px;
             text-align: center;
         }
+
         .success {
             color: #28a745;
             padding: 10px;
@@ -173,47 +206,32 @@ LOGIN_PAGE = """
             border-radius: 4px;
             text-align: center;
         }
-        .logout {
-            text-align: right;
-            margin-bottom: 20px;
-        }
-        .logout-btn {
-            background-color: #dc3545;
-            color: white;
-            padding: 5px 10px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            text-decoration: none;
-            font-size: 14px;
-        }
-        .logout-btn:hover {
-            background-color: #c82333;
-        }
     </style>
-
 </head>
 <body>
-    <h2>Login</h2>
-    <form method="POST">
-        <label for="username">Select Username:</label>
-        <select id="username" name="username" required>
-            <option value="user1">User 1</option>
-            <option value="user2">User 2</option>
-            <option value="user3">User 3</option>
-            <option value="admin">User 3</option>
-        </select><br><br>
-        
-        <label for="password">Password:</label>
-        <input type="password" id="password" name="password" required><br><br>
-        
-        <button type="submit">Login</button>
-    </form>
-    {% if error %}
-    <p style="color: red;">{{ error }}</p>
-    {% endif %}
+    <div class="container">
+        <h2>Login</h2>
+        <form method="POST">
+            <label for="username">Select Username:</label>
+            <select id="username" name="username" required>
+                <option value="user1">User 1</option>
+                <option value="user2">User 2</option>
+                <option value="user3">User 3</option>
+                <option value="admin">Admin</option>
+            </select>
+            
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required><br><br>
+            
+            <button type="submit">Login</button>
+        </form>
+        {% if error %}
+        <p style="color: red;">{{ error }}</p>
+        {% endif %}
+    </div>
 </body>
 </html>
+
 """
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -230,6 +248,85 @@ HTML_TEMPLATE = """
         }, 50000);
     </script>    
     <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #ff7eb3, #ff758c, #fdb15c, #ffde59, #a7ff83, #17c3b2, #2d6cdf, #7c5cdb);
+            background-size: 300% 300%;
+            animation: gradientBG 10s ease infinite;
+            color: #ffffff;
+        }
+
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .container {
+            max-width: 700px;
+            width: 100%; /* Ensures responsiveness */
+            background : linear-gradient(135deg, #30343F, #404452);
+            margin: 20px auto;
+            padding: 30px;
+            border-radius: 25px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3); /* Adds depth */
+            color: white;
+            min-height : 400px
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 16px;
+        }
+      
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+        }
+
+        h2 {
+            color: white;
+            text-align: left;
+            margin-bottom: 30px;
+            font-size: 18px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            color: white
+        }
+
+        button {
+            width: 100%;
+            padding: 12px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: orange;
+        }
+
         .punch-circle {
             width: 150px;
             height: 150px;
@@ -257,6 +354,7 @@ HTML_TEMPLATE = """
         #punch-history ul { list-style-type: none; }
         .remark-section { margin-bottom: 20px; }
         .remark-input {
+            display : none;
             width: 100%;
             padding: 8px;
             margin-top: 5px;
@@ -269,20 +367,24 @@ HTML_TEMPLATE = """
             color: #ff0000;
         }
         #map {
-            height: 400px;
-            width: 100%;
-            margin: 20px 0;
-            border-radius: 8px;
+            display : none;
+            width: 400px; /* Set the width of the map */
+            height: 300px; /* Set the height of the map */
+            margin: 0 auto; /* Center the map horizontally */
+            border: 2px solid #333; /* Optional: Add a border for better visibility */
+            border-radius: 8px; /* Optional: Round the corners */
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Optiona
         }
     </style>
 </head>
 <body>
+    <div class="container">
     <header>
         <h1>Attendance Punch System</h1>
     </header>
 
     <main>
-        <div id="map"></div>
+
 
         <section id="geofence-status">
             <p>Geofence Status: <span id="geofence-indicator">Checking...</span></p>
@@ -292,8 +394,7 @@ HTML_TEMPLATE = """
         <section id="punch-controls">           
             <div id="punch-in" class="punch-circle punch-in" style="display: none;">Punch In</div>
             <div id="punch-out" class="punch-circle punch-out" style="display: none;">Punch Out</div>
-            <div class="remark-section">
-                <label for="user-remark">Remark (optional):</label>
+            <div class="remark-section">                
                 <input type="text" id="user-remark" class="remark-input" placeholder="Enter your remark">
             </div>
         </section>    
@@ -303,6 +404,8 @@ HTML_TEMPLATE = """
             <ul id="history-list"></ul>
         </section>
 
+        <div id="map"></div>        
+        
         <form method="POST" action="/logout">
             <button type="submit">Logout</button>
         </form>           
