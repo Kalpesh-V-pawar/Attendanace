@@ -110,6 +110,7 @@ LOGIN_PAGE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
+    <link rel="icon" href="https://raw.githubusercontent.com/Kalpesh-V-pawar/Daily_Tasks_Update/main/img/CRM logo.png" type="image/png">
     <style>
         body {
             display: flex;
