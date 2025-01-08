@@ -379,6 +379,12 @@ HTML_TEMPLATE = """
             border-radius: 8px; /* Optional: Round the corners */
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Optiona
         }
+        @media (max-width: 768px) {
+            body {
+                animation: none; /* Disable background animation on smaller screens */
+            }
+        }
+        
     </style>
 </head>
 <body>
