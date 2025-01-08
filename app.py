@@ -32,12 +32,13 @@ geofence_radius = 1000000  # 1000 meters radius
 
 # Predefined users and their credentials (username, password)
 users = {
-    "user1": "19581",
-    "user2": "18493",
-    "user3": "17026",
-    "user4": "2024",
+    "u_Nirav": "19581",
+    "u_Vikram": "18493",
+    "u_Mitesh": "17026",
+    "u_Test": "2024",
     "admin": "Kal180" ,
 }
+
 
 logged_in_user = None
 
@@ -110,7 +111,6 @@ LOGIN_PAGE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
-    <link rel="icon" href="https://raw.githubusercontent.com/Kalpesh-V-pawar/Daily_Tasks_Update/main/img/CRM logo.png" type="image/png">
     <style>
         body {
             display: flex;
@@ -217,11 +217,11 @@ LOGIN_PAGE = """
             <label for="username">Select Username:</label>
             <select id="username" name="username" required>
                 <option value="" selected disabled>Select User</option>
-                <option value="user1">Nirav</option>
-                <option value="user2">Vikram</option>
-                <option value="user3">Mitesh</option>
-                <option value="user4">Test</option>
-                <option value="admin">Kalpesh</option>
+                <option value="u_Nirav">Nirav</option>
+                <option value="u_Vikram">Vikram</option>
+                <option value="u_Mitesh">Mitesh</option>
+                <option value="u_Test">Test</option>
+                <option value="admin">Admin</option>
             </select>
             
             <label for="password">Password:</label>
@@ -604,13 +604,117 @@ HTML_TEMPLATE = """
 </html>
 """
 
-ADMIN_TEMPLATE = """
+ADMIN_MENU_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - Attendance System</title>
+    <title>Admin Dashboard - Menu</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            max-width: 600px;
+            width: 90%;
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+        h1 {
+            margin: 0;
+            color: #333;
+        }
+        .menu-options {
+            display: grid;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .menu-button {
+            padding: 20px;
+            font-size: 18px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+        }
+        .pending-button {
+            background-color: #4CAF50;
+        }
+        .processed-button {
+            background-color: #2196F3;
+        }
+        .menu-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .logout-btn {
+            background-color: #dc3545;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .arrow {
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Admin Dashboard</h1>
+            <form method="POST" action="/logout" style="margin: 0;">
+                <button type="submit" class="logout-btn">Logout</button>
+            </form>
+        </div>
+        <div class="menu-options">
+            <a href="/admin/pending" style="text-decoration: none;">
+                <button class="menu-button pending-button">
+                    View Pending Records
+                    <span class="arrow">→</span>
+                </button>
+            </a>
+            <a href="/admin/processed" style="text-decoration: none;">
+                <button class="menu-button processed-button">
+                    View Processed Records
+                    <span class="arrow">→</span>
+                </button>
+            </a>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+ADMIN_PENDING_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pending Records - Admin Dashboard</title>
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
@@ -624,6 +728,16 @@ ADMIN_TEMPLATE = """
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
         }
         table {
             width: 100%;
@@ -643,7 +757,7 @@ ADMIN_TEMPLATE = """
         tr:hover {
             background-color: #f5f5f5;
         }
-        select {
+        .status-select {
             padding: 6px;
             border: 1px solid #ddd;
             border-radius: 4px;
@@ -657,25 +771,15 @@ ADMIN_TEMPLATE = """
             border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
-            margin-top: 20px;
         }
-        .save-btn:hover {
-            background-color: #45a049;
-        }
-        .status-pending {
-            color: #f0ad4e;
-        }
-        .status-approved {
-            color: #5cb85c;
-        }
-        .status-rejected {
-            color: #d9534f;
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
+        .back-btn {
+            background-color: #6c757d;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
         }
         .logout-btn {
             background-color: #dc3545;
@@ -696,19 +800,22 @@ ADMIN_TEMPLATE = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>Admin Dashboard</h1>
-            <form method="POST" action="/logout" style="margin: 0;">
-                <button type="submit" class="logout-btn">Logout</button>
-            </form>
+            <h1>Pending Records</h1>
+            <div class="button-group">
+                <a href="/admin" class="back-btn">Back to Menu</a>
+                <form method="POST" action="/logout" style="margin: 0;">
+                    <button type="submit" class="logout-btn">Logout</button>
+                </form>
+            </div>
         </div>
-        
+
         <div class="filter-section">
             <select id="userFilter" onchange="filterRecords()">
                 <option value="">All Users</option>
-                <option value="user1">Nirav</option>
-                <option value="user2">Vikram</option>
-                <option value="user3">Mitesh</option>
-                <option value="user4">Test</option>
+                <option value="u_Nirav">Nirav</option>
+                <option value="u_Vikram">Vikram</option>
+                <option value="u_Mitesh">Mitesh</option>
+                <option value="u_Test">Test</option>
             </select>
             <select id="statusFilter" onchange="filterRecords()">
                 <option value="">All Statuses</option>
@@ -716,16 +823,16 @@ ADMIN_TEMPLATE = """
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
             </select>
-        </div>
+        </div>        
 
-        <table id="attendanceTable">
+        <table id="pendingTable">
             <thead>
                 <tr>
                     <th>Username</th>
                     <th>Action</th>
                     <th>Date & Time</th>
+                    <th>User Remark</th>
                     <th>Status</th>
-                    <th>Status Changed At</th>
                     <th>Work Duration (Hours)</th>
                     <th>Admin Remark</th>
                 </tr>
@@ -744,18 +851,17 @@ ADMIN_TEMPLATE = """
                             <option value="rejected" {% if record.status == 'rejected' %}selected{% endif %}>Rejected</option>
                         </select>
                     </td>
-                    <td>{{ record.statusChangedAt.strftime('%Y-%m-%d %H:%M:%S') if record.statusChangedAt else '' }}</td>                    
                     <td>{{ record.workDuration if record.workDuration is not none else '' }}</td>
                     <td>
                         <input type="text" class="admin-remark" data-record-id="{{ record._id }}" 
                                value="{{ record.adminRemark or '' }}" placeholder="Add remark">
-                    </td>                
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         
-        <button onclick="saveChanges()" class="save-btn">Save Changes</button>
+        <button onclick="saveChanges()" class="save-btn" style="margin-top: 20px;">Save Changes</button>
     </div>
 
     <script>
@@ -764,7 +870,7 @@ ADMIN_TEMPLATE = """
         function filterRecords() {
             const userFilter = document.getElementById('userFilter').value;
             const statusFilter = document.getElementById('statusFilter').value;
-            const rows = document.querySelectorAll('#attendanceTable tbody tr');
+            const rows = document.querySelectorAll('#pendingTable tbody tr');
 
             rows.forEach(row => {
                 const username = row.getAttribute('data-username');
@@ -773,14 +879,13 @@ ADMIN_TEMPLATE = """
                 const statusMatch = !statusFilter || status === statusFilter;
                 row.style.display = userMatch && statusMatch ? '' : 'none';
             });
-        }
-
+        }        
 
         document.querySelectorAll('.status-select').forEach(select => {
             select.addEventListener('change', function() {
                 changedRecords.add(this.dataset.recordId);
-                const row = this.closest('tr');
-                row.setAttribute('data-status', this.value);
+                // Update the data-status attribute of the parent row
+                this.closest('tr').setAttribute('data-status', this.value);
             });
         });
 
@@ -788,7 +893,7 @@ ADMIN_TEMPLATE = """
             const updates = Array.from(changedRecords).map(recordId => {
                 const select = document.querySelector(`select[data-record-id="${recordId}"]`);
                 const remarkInput = document.querySelector(`input.admin-remark[data-record-id="${recordId}"]`);
-        
+                
                 return {
                     recordId: recordId,
                     status: select.value,
@@ -805,51 +910,175 @@ ADMIN_TEMPLATE = """
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({ updates: updates })
             })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                if (data.status === 'success' || data.status === 'partial') {
-                    if (data.failed && data.failed.length > 0) {
-                        alert(`Some updates failed. Failed IDs: ${data.failed.join(', ')}`);
-                    } else {
-                        alert('Changes saved successfully');
-                    }
+                if (data.status === 'success') {
+                    alert('Changes saved successfully');
                     changedRecords.clear();
-                    
-                    // Update the data-status attributes for filtered views
-                    updates.forEach(update => {
-                        const select = document.querySelector(`select[data-record-id="${update.recordId}"]`);
-                        const row = select ? select.closest('tr') : null;
-                        if (row) {
-                            row.setAttribute('data-status', update.status);
-                        }
-                    });
                 } else {
                     alert(data.message || 'Error saving changes');
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                alert(`Error saving changes: ${error.message}`);
+                alert('Error saving changes');
             });
         }
-
-        // Add error handler for initial page load
-        window.addEventListener('error', function(e) {
-            console.error('Page Error:', e.error);
-        });
     </script>
 </body>
 </html>
+
 """
+
+ADMIN_PROCESSED_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processed Records - Admin Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .status-approved {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .status-rejected {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .back-btn {
+            background-color: #6c757d;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .logout-btn {
+            background-color: #dc3545;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .filter-section {
+            margin-bottom: 20px;
+        }
+        .filter-select {
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Processed Records</h1>
+            <div class="button-group">
+                <a href="/admin" class="back-btn">Back to Menu</a>
+                <form method="POST" action="/logout" style="margin: 0;">
+                    <button type="submit" class="logout-btn">Logout</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="filter-section">
+            <select id="userFilter" onchange="filterRecords()">
+                <option value="">All Users</option>
+                <option value="u_Nirav">Nirav</option>
+                <option value="u_Vikram">Vikram</option>
+                <option value="u_Mitesh">Mitesh</option>
+                <option value="u_Test">Test</option>
+            </select>
+            <select id="statusFilter" onchange="filterRecords()">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+            </select>
+        </div>
+
+        <table id="processedTable">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Action</th>
+                    <th>Date & Time</th>
+                    <th>User Remark</th>
+                    <th>Status</th>
+                    <th>Status Changed At</th>
+                    <th>Work Duration (Hours)</th>
+                    <th>Admin Remark</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr data-username="{{ record.username }}" data-status="{{ record.status }}">
+                    <td>{{ record.username }}</td>
+                    <td>{{ record.action }}</td>
+                    <td>{{ record.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ record.userRemark or '' }}</td>
+                    <td class="status-{{ record.status }}">{{ record.status }}</td>
+                    <td>{{ record.statusChangedAt.strftime('%Y-%m-%d %H:%M:%S') if record.statusChangedAt else '' }}</td>
+                    <td>{{ record.workDuration if record.workDuration is not none else '' }}</td>
+                    <td>{{ record.adminRemark or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    
+</body>
+</html>
+"""    
 
 def admin_required(f):
     @wraps(f)
@@ -863,7 +1092,23 @@ def admin_required(f):
 @admin_required
 def admin_page():
     records = list(punch_collection.find().sort("timestamp", DESCENDING))
-    return render_template_string(ADMIN_TEMPLATE, records=records)
+    return render_template_string(ADMIN_MENU_TEMPLATE)
+
+@app.route("/admin/pending", methods=["GET"])
+@admin_required
+def admin_pending_page():
+    # Only fetch pending records
+    records = list(punch_collection.find({"status": "pending"}).sort("timestamp", DESCENDING))
+    return render_template_string(ADMIN_PENDING_TEMPLATE, records=records)
+
+@app.route("/admin/processed", methods=["GET"])
+@admin_required
+def admin_processed_page():
+    # Fetch approved and rejected records
+    records = list(punch_collection.find({
+        "status": {"$in": ["approved", "rejected"]}
+    }).sort("timestamp", DESCENDING))
+    return render_template_string(ADMIN_PROCESSED_TEMPLATE, records=records)
 
 
 @app.route("/update_status", methods=["POST"])
