@@ -22,6 +22,7 @@ mongo_uri = os.getenv("MONGO_URI")
 client = MongoClient(mongo_uri) 
 db = client['attendance_system']
 punch_collection = db['punch_records']
+users = db['users']
 
 # Geofence center and radius
 geofence_center = (22.27174507140292, 73.17586006441583)  # Example coordinates
@@ -30,13 +31,7 @@ geofence_radius = 1000000  # 1000 meters radius
 
 
 # Predefined users and their credentials (username, password)
-users = {
-    "u_Nirav": "19581",
-    "u_Vikram": "18493",
-    "u_Mitesh": "17026",
-    "u_Test": "2024",
-    "admin": "Kal180" ,
-}
+
 
 
 logged_in_user = None
