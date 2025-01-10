@@ -1,6 +1,4 @@
-import sys
-sys.path.append(r'C:\users\kalpe\appData\roaming\python\python312\site-packages')
-
+import os
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
 from haversine import haversine, Unit
 from pymongo import MongoClient, DESCENDING
@@ -20,7 +18,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # MongoDB setup
-client = MongoClient("mongodb+srv://Kalpeshpawar:010420011@cluster0.usfz4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0") 
+mongo_uri = os.getenv("MONGO_URI") 
+client = MongoClient(mongo_uri) 
 db = client['attendance_system']
 punch_collection = db['punch_records']
 
